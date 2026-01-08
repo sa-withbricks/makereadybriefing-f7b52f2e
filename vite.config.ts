@@ -25,7 +25,6 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     target: 'esnext',
-    outDir: 'build',
   },
   server: {
     host: '::',
