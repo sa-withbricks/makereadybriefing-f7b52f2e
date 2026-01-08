@@ -55,7 +55,7 @@ const fetchWithRetry = async (
   throw lastError;
 };
 
-export default function App() {
+function App() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -342,3 +342,5 @@ export default function App() {
     </div>
   );
 }
+
+export default App;
