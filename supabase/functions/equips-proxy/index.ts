@@ -115,10 +115,39 @@ Deno.serve(async (req) => {
     const relevant = allServiceRequests.filter((sr) => sr.serviceWorkflowToServiceStatusId);
     console.log(`Filtered to ${relevant.length} records with serviceWorkflowToServiceStatusId`);
 
+    // Collect unique serviceWorkflowToServiceStatusId values and resolve them
+    const uniqueStatusIds = [...new Set(relevant.map(sr => sr.serviceWorkflowToServiceStatusId as string))];
+    console.log(`Resolving ${uniqueStatusIds.length} unique serviceWorkflowToServiceStatus IDs`);
+
+    // Fetch each serviceWorkflowToServiceStatus to get the embedded serviceStatus.name
+    const statusNameMap: Record<string, string> = {};
+
+    // Batch: fetch all SWTS in parallel (limited concurrency)
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < uniqueStatusIds.length; i += BATCH_SIZE) {
+      const batch = uniqueStatusIds.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async (swtsId) => {
+          const swts = await equipsFetch(`/public/serviceWorkflowToServiceStatus/${swtsId}`, apiKey);
+          const name = swts?.serviceStatus?.name || swts?.name || '';
+          return { swtsId, name };
+        })
+      );
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          statusNameMap[result.value.swtsId] = result.value.name;
+        }
+      }
+    }
+    console.log(`Resolved ${Object.values(statusNameMap).filter(Boolean).length} status names`);
+
     // Enrich service requests
     const enriched = relevant.map((sr: Record<string, unknown>) => {
-      // Format status from requestStatus enum
-      const statusName = sr.requestStatus ? formatStatus(sr.requestStatus as string) : 'Unknown';
+      // Resolve status name from serviceStatus via serviceWorkflowToServiceStatusId
+      const swtsId = sr.serviceWorkflowToServiceStatusId as string;
+      const resolvedStatusName = statusNameMap[swtsId] || '';
+      // Fallback to formatted requestStatus if resolution failed
+      const statusName = resolvedStatusName || (sr.requestStatus ? formatStatus(sr.requestStatus as string) : 'Unknown');
 
       // Convert epoch dueDate to ISO date string (YYYY-MM-DD)
       let dueDateStr = '';
