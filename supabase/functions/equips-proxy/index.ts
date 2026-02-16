@@ -5,6 +5,47 @@ const corsHeaders = {
 
 const EQUIPS_BASE = 'https://api.equips.com';
 
+// Custom field key mapping: snake_case API keys → camelCase report fields
+const CUSTOM_FIELD_MAP: Record<string, string> = {
+  cp_walk_date: 'cpWalkDate',
+  evs: 'evs',
+  key_release: 'keyRelease',
+  hhg: 'hhg',
+  move_in: 'moveIn',
+  ntv: 'ntv',
+  vacate: 'vacate',
+  kti: 'kti',
+};
+
+// requestStatus enum → human-readable display
+const STATUS_DISPLAY: Record<string, string> = {
+  proposed: 'Proposed',
+  internalDispatch: 'Internal Dispatch',
+  equipsDispatch: 'Equips Dispatch',
+  providerDispatch: 'Provider Dispatch',
+  serviceComplete: 'Service Complete',
+  closed: 'Closed',
+  canceled: 'Canceled',
+  invoiced: 'Invoiced',
+  followUp: 'Follow Up',
+  awaitingPayment: 'Awaiting Payment',
+  inProgress: 'In Progress',
+  onHold: 'On Hold',
+};
+
+function formatEpoch(value: unknown): string {
+  if (typeof value === 'number' && value > 1_000_000_000) {
+    const d = new Date(value);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  if (typeof value === 'string' && value.trim()) return value;
+  return '';
+}
+
+function formatStatus(requestStatus: string): string {
+  return STATUS_DISPLAY[requestStatus] || requestStatus.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
+}
+
 async function equipsFetch(path: string, apiKey: string, options?: RequestInit) {
   const res = await fetch(`${EQUIPS_BASE}${path}`, {
     ...options,
@@ -45,7 +86,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch all service requests with pagination (EQUIPS uses `take`/`skip`)
+    // Fetch all service requests with pagination
     let allServiceRequests: Record<string, unknown>[] = [];
     let page = 0;
     const pageSize = 500;
@@ -70,85 +111,14 @@ Deno.serve(async (req) => {
 
     console.log(`Total service requests fetched: ${allServiceRequests.length}`);
 
-    // Fetch lookup data (optional - don't fail if these endpoints aren't available)
-    const safeGet = async (path: string) => {
-      try {
-        return await equipsFetch(path, apiKey);
-      } catch (err) {
-        console.warn(`Optional endpoint ${path} failed:`, err.message);
-        // Try POST with search suffix
-        try {
-          return await equipsFetch(`${path}/search`, apiKey, {
-            method: 'POST',
-            body: JSON.stringify({}),
-          });
-        } catch (err2) {
-          console.warn(`Optional endpoint ${path}/search also failed:`, err2.message);
-          return [];
-        }
-      }
-    };
-
-    const [locations, statuses, workflows, workflowStatuses] = await Promise.all([
-      safeGet('/public/location'),
-      safeGet('/public/serviceStatus'),
-      safeGet('/public/serviceWorkflow'),
-      safeGet('/public/serviceWorkflowToServiceStatus'),
-    ]);
-
-    // Build lookup maps
-    const locationMap: Record<string, string> = {};
-    const locationArr = Array.isArray(locations) ? locations : locations?.data || [];
-    for (const loc of locationArr) {
-      if (loc.locationId && loc.name) {
-        locationMap[loc.locationId] = loc.name;
-      }
-    }
-
-    const statusMap: Record<string, string> = {};
-    const statusArr = Array.isArray(statuses) ? statuses : statuses?.data || [];
-    for (const s of statusArr) {
-      if (s.serviceStatusId && s.name) {
-        statusMap[s.serviceStatusId] = s.name;
-      }
-    }
-
-    const workflowMap: Record<string, string> = {};
-    const workflowArr = Array.isArray(workflows) ? workflows : workflows?.data || [];
-    for (const w of workflowArr) {
-      if (w.serviceWorkflowId && w.name) {
-        workflowMap[w.serviceWorkflowId] = w.name;
-      }
-    }
-
-    // Build workflow-to-status lookup
-    const wfStatusMap: Record<string, { statusName: string; workflowName: string }> = {};
-    const wfStatusArr = Array.isArray(workflowStatuses) ? workflowStatuses : workflowStatuses?.data || [];
-    for (const wfs of wfStatusArr) {
-      if (wfs.serviceWorkflowToServiceStatusId) {
-        wfStatusMap[wfs.serviceWorkflowToServiceStatusId] = {
-          statusName: statusMap[wfs.serviceStatusId] || wfs.serviceStatusId || '',
-          workflowName: workflowMap[wfs.serviceWorkflowId] || wfs.serviceWorkflowId || '',
-        };
-      }
-    }
-
-    // Enrich service requests — only include those with serviceWorkflowToServiceStatusId
+    // Filter to only SRs with serviceWorkflowToServiceStatusId
     const relevant = allServiceRequests.filter((sr) => sr.serviceWorkflowToServiceStatusId);
     console.log(`Filtered to ${relevant.length} records with serviceWorkflowToServiceStatusId`);
+
+    // Enrich service requests
     const enriched = relevant.map((sr: Record<string, unknown>) => {
-      const locationName = sr.locationId ? locationMap[sr.locationId as string] || '' : '';
-      
-      // Resolve status from workflowToServiceStatus mapping
-      let statusName = sr.requestStatus as string || '';
-      let workflowName = '';
-      if (sr.serviceWorkflowToServiceStatusId) {
-        const wfStatus = wfStatusMap[sr.serviceWorkflowToServiceStatusId as string];
-        if (wfStatus) {
-          statusName = wfStatus.statusName || statusName;
-          workflowName = wfStatus.workflowName;
-        }
-      }
+      // Format status from requestStatus enum
+      const statusName = sr.requestStatus ? formatStatus(sr.requestStatus as string) : 'Unknown';
 
       // Convert epoch dueDate to ISO date string (YYYY-MM-DD)
       let dueDateStr = '';
@@ -157,12 +127,22 @@ Deno.serve(async (req) => {
         dueDateStr = d.toISOString().split('T')[0];
       }
 
+      // Flatten customFields into top-level camelCase fields with formatted dates
+      const flatCustomFields: Record<string, string> = {};
+      const customFields = sr.customFields as Record<string, unknown> | undefined;
+      if (customFields && typeof customFields === 'object') {
+        for (const [apiKey, reportKey] of Object.entries(CUSTOM_FIELD_MAP)) {
+          if (apiKey in customFields) {
+            flatCustomFields[reportKey] = formatEpoch(customFields[apiKey]);
+          }
+        }
+      }
+
       return {
         ...sr,
-        locationName,
         statusName,
-        workflowName,
         dueDateFormatted: dueDateStr,
+        ...flatCustomFields,
       };
     });
 
