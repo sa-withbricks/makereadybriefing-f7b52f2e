@@ -90,28 +90,40 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch all service requests — use parallel page fetching for speed
+    // Fetch only service requests that have a serviceWorkflowToServiceStatusId
+    // Using Prisma-style where filter
+    const filterBody = {
+      ...searchBody,
+      where: {
+        serviceWorkflowToServiceStatusId: { not: null },
+      },
+    };
+
+    let allServiceRequests: Record<string, unknown>[] = [];
+    let page = 0;
     const pageSize = 500;
-    const maxRecords = 10000;
-    const totalPages = maxRecords / pageSize; // 20 pages
+    let hasMore = true;
 
-    // Fire all page requests in parallel
-    const pagePromises = Array.from({ length: totalPages }, (_, page) =>
-      equipsFetch('/public/serviceRequest/search', apiKey, {
+    while (hasMore) {
+      const result = await equipsFetch('/public/serviceRequest/search', apiKey, {
         method: 'POST',
-        body: JSON.stringify({ ...searchBody, take: pageSize, skip: page * pageSize }),
-      }).then(result => {
-        const items = Array.isArray(result) ? result : result?.data || [];
-        console.log(`Page ${page}: fetched ${items.length} records`);
-        return items as Record<string, unknown>[];
-      })
-    );
+        body: JSON.stringify({ ...filterBody, take: pageSize, skip: page * pageSize }),
+      });
 
-    const pageResults = await Promise.all(pagePromises);
-    const allServiceRequests = pageResults.flat();
+      const items = Array.isArray(result) ? result : result?.data || [];
+      allServiceRequests = allServiceRequests.concat(items);
+      
+      console.log(`Page ${page}: fetched ${items.length} records (total so far: ${allServiceRequests.length})`);
+      
+      if (items.length < pageSize || allServiceRequests.length >= 10000) {
+        hasMore = false;
+      }
+      page++;
+    }
+
     console.log(`Total service requests fetched: ${allServiceRequests.length}`);
 
-    // Filter to only SRs with serviceWorkflowToServiceStatusId
+    // Safety filter in case API doesn't honor the where clause
     const relevant = allServiceRequests.filter((sr) => sr.serviceWorkflowToServiceStatusId);
     console.log(`Filtered to ${relevant.length} records with serviceWorkflowToServiceStatusId`);
 
