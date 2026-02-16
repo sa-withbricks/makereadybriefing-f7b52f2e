@@ -63,21 +63,41 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
     console.log('Converted Metabase data:', processedData);
   }
   
+  // Strip HTML tags from a string
+  const stripHtml = (html: string): string => {
+    if (!html) return '';
+    return html.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+  };
+
   // Transform and normalize the data
   const normalizeEntry = (entry: any): TaskEntry => {
     // Use enriched fields from the edge function (dueDateFormatted, statusName, locationName)
-    const dueDate = entry.dueDateFormatted || entry['Due Date: Day'] || entry.due_date || entry.dueDate || entry.Due_Date || 
-                   entry.date || entry.Date || entry.created_at || entry.createdAt || null;
+    let dueDate = entry.dueDateFormatted || entry['Due Date: Day'] || entry.due_date || entry.Due_Date || 
+                   entry.date || entry.Date || null;
+    
+    // Handle epoch timestamps (dueDate from EQUIPS is in ms)
+    if (!dueDate && entry.dueDate && typeof entry.dueDate === 'number') {
+      const d = new Date(entry.dueDate);
+      dueDate = d.toISOString().split('T')[0];
+    }
+
+    // Handle createdAt as fallback (also epoch)
+    if (!dueDate && entry.createdAt && typeof entry.createdAt === 'number') {
+      const d = new Date(entry.createdAt);
+      dueDate = d.toISOString().split('T')[0];
+    }
     
     const time = entry.time || entry.Time || '';
+    const rawDesc = entry.description || entry.Description || '';
     
     return {
+      ...entry, // Spread first so explicit fields override
       date: dueDate,
       time: time === 'All Day' ? '' : time,
       status: entry.statusName || entry['Status - StatusId → Name'] || entry.requestStatus || entry.status || entry.Status || 'UNKNOWN',
       title: entry.title || entry.Title || entry.name || entry.Name || 'Untitled',
-      description: entry.locationName || entry.descriptionText2 || entry.description || entry.Description || '',
-      details: entry.details || entry.Details || entry.notes || entry.Notes || '',
+      description: entry.locationName || stripHtml(entry.descriptionText2 || rawDesc),
+      details: stripHtml(entry.details || entry.Details || entry.notes || entry.Notes || ''),
       cpWalkDate: entry['CP Walk Date'] || entry.cpWalkDate || entry.cp_walk_date || '',
       evs: entry.EVS || entry.evs || entry.EVS_Date || '',
       keyRelease: entry['Key Release'] || entry.keyRelease || entry.key_release || '',
@@ -88,7 +108,6 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
       openWOs: entry['Make Readys - Location → Count Open'] || entry.openWOs || entry.open_wos || '',
       kti: entry.KTI || entry.kti || entry.KTI_Date || '',
       serviceRequestId: entry['Service Request Id'] || entry.serviceRequestId || entry.service_request_id || '',
-      ...entry // Keep all original properties
     };
   };
 
