@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
       ...searchBody,
       where: {
         serviceWorkflowToServiceStatusId: { not: null },
-        deactivatedAt: { equals: null },
+        
       },
     };
 
@@ -132,8 +132,7 @@ Deno.serve(async (req) => {
 
     console.log(`Total service requests fetched: ${allServiceRequests.length}`);
 
-    // Safety filter in case API doesn't honor the where clause
-    const relevant = allServiceRequests.filter((sr) => sr.serviceWorkflowToServiceStatusId);
+    const relevant = allServiceRequests.filter((sr) => sr.serviceWorkflowToServiceStatusId && !sr.deactivatedAt);
     console.log(`Filtered to ${relevant.length} records with serviceWorkflowToServiceStatusId`);
 
     // Collect unique serviceWorkflowToServiceStatusId values and resolve them
