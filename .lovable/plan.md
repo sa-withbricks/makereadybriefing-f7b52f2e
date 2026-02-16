@@ -1,67 +1,61 @@
 
-## Replace Metabase with Direct EQUIPS API via Secure Edge Function
 
-### What We're Doing
-Replacing the current unreliable Metabase/CORS-proxy approach with direct calls to the EQUIPS API (api.equips.com), routed securely through a backend function so your API key stays protected.
+## Read Custom Fields and Status from EQUIPS API
 
-### Architecture
+### What's Happening Now
+- The EQUIPS API returns `customFields` as a nested object on each service request (e.g., `{"cp_walk_date": 1740268800000, "evs": 1740614400000, "move_in": ...}`). These contain the make-ready milestone dates.
+- The report currently ignores this nested object because it looks for top-level keys like `cpWalkDate`, `evs`, etc.
+- The status lookup endpoints (`/public/serviceStatus`, `/public/serviceWorkflowToServiceStatus`, etc.) all return 404, so they're not available. However, each SR already has a `requestStatus` field with readable enum values like `internalDispatch`, `proposed`, `serviceComplete`, `closed`, etc.
 
-The browser will call a single backend function, which will make server-side calls to these EQUIPS API endpoints:
-- `/public/serviceRequest/search` -- main service request data
-- `/public/location` -- location details
-- `/public/serviceStatus` -- status definitions
-- `/public/serviceWorkflow` -- workflow definitions  
-- `/public/serviceWorkflowToServiceStatus` -- workflow-to-status mappings
+### What Changes
 
-The backend function will combine/enrich the data and return it to the browser in the format the report expects.
+**1. Edge Function (`supabase/functions/equips-proxy/index.ts`)**
+- Flatten `customFields` into the top level of each enriched SR, converting epoch timestamps to formatted date strings (e.g., `cp_walk_date: 1740268800000` becomes `cpWalkDate: "2025-02-23"`)
+- Use `requestStatus` directly for the status (formatted to human-readable: `internalDispatch` becomes `"Internal Dispatch"`)
+- Remove the 4 failing lookup endpoint calls (`/public/location`, `/public/serviceStatus`, `/public/serviceWorkflow`, `/public/serviceWorkflowToServiceStatus`) to speed up the response
 
-### Steps
-
-**Step 1: Store your EQUIPS API key securely**
-- Use the Lovable secrets tool to request your `EQUIPS_API_KEY`
-- This key will only be accessible server-side, never exposed to the browser
-
-**Step 2: Create the backend function** (`supabase/functions/equips-proxy/index.ts`)
-- Accept parameters from the frontend (e.g., search filters, date ranges)
-- Read `EQUIPS_API_KEY` from environment variables
-- Call the 5 EQUIPS API endpoints at `https://api.equips.com`
-- Combine service requests with location names, status names, and workflow info
-- Return enriched data to the frontend
-- Include proper CORS headers
-
-**Step 3: Update `supabase/config.toml`**
-- Add the function configuration with `verify_jwt = false` (no auth on the app currently)
-
-**Step 4: Simplify `src/App.tsx`**
-- Remove all 5 CORS proxy strategies
-- Remove the retry/proxy-cycling logic
-- Replace with a single fetch call to the backend function
-- Keep the caching fallback for offline/error scenarios
-
-**Step 5: Update `src/components/ReportGenerator.tsx`**
-- Adjust field mapping to match EQUIPS API response fields (e.g., `dueDate`, `title`, `requestStatus`, `locationId`) instead of Metabase column names
-- The enriched data from the backend function will include resolved location names and status labels
+**2. Report Component (`src/components/ReportGenerator.tsx`)**
+- Update `normalizeEntry` to read custom field values from the flattened fields: `cpWalkDate`, `evs`, `keyRelease`, `hhg`, `moveIn`, `ntv`, `vacate`, `kti`
+- Use the human-readable `statusName` from the edge function instead of falling back through multiple field names
+- Remove legacy Metabase column mapping code that's no longer needed
 
 ### Technical Details
 
-The edge function will:
-1. Fetch service requests via POST to `/public/serviceRequest/search` with appropriate filters
-2. Fetch locations, statuses, workflows, and workflow-to-status mappings in parallel
-3. Build lookup maps (locationId to name, status IDs to labels, etc.)
-4. Enrich each service request with resolved names
-5. Return the combined dataset
+Custom field key mapping (from API to report fields):
 
-The EQUIPS API uses API Key authentication (via `x-api-key` header based on the swagger security scheme).
+| API customFields key | Report field | Display label |
+|---|---|---|
+| `cp_walk_date` | `cpWalkDate` | CP Walk Date |
+| `evs` | `evs` | EVS |
+| `key_release` | `keyRelease` | Key Release |
+| `hhg` | `hhg` | HHG |
+| `move_in` | `moveIn` | Move In |
+| `ntv` | `ntv` | NTV |
+| `vacate` | `vacate` | Vacate |
+| `kti` | `kti` | KTI |
 
-### What Changes
-| File | Change |
-|------|--------|
-| `supabase/functions/equips-proxy/index.ts` | New -- backend function calling EQUIPS API |
-| `supabase/config.toml` | Add function config |
-| `src/App.tsx` | Simplify to call the backend function instead of CORS proxies |
-| `src/components/ReportGenerator.tsx` | Update field mappings for EQUIPS API response format |
+Status formatting (camelCase enum to readable):
+
+| API `requestStatus` | Display |
+|---|---|
+| `proposed` | Proposed |
+| `internalDispatch` | Internal Dispatch |
+| `equipsDispatch` | Equips Dispatch |
+| `providerDispatch` | Provider Dispatch |
+| `serviceComplete` | Service Complete |
+| `closed` | Closed |
+| `canceled` | Canceled |
+| `invoiced` | Invoiced |
+| `followUp` | Follow Up |
+| `awaitingPayment` | Awaiting Payment |
+| `inProgress` | In Progress |
+| `onHold` | On Hold |
+
+All custom field epoch values will be converted to formatted dates (e.g., "Feb 23, 2025") in the edge function so the frontend just displays them directly.
 
 ### What Stays the Same
-- The visual report layout, timeline slicer, print functionality
-- Local caching as a fallback
-- Loading messages and error handling UI
+- Timeline slicer, print functionality, date grouping
+- Card layout and visual design
+- Caching fallback in App.tsx
+- Pagination logic for fetching all SRs
+
