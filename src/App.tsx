@@ -4,7 +4,9 @@ import { Button } from './components/ui/button';
 import { Card } from './components/ui/card';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
-import { supabase } from './integrations/supabase/client';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://crrksywyxdpylndkgrnp.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNycmtzeXd5eGRweWxuZGtncm5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzczOTcsImV4cCI6MjA4MzQ1MzM5N30.VV45bA7qYxDhMGsaWbWhaLw9gRjF6u_t8hMSmZyPtzk';
 
 interface ApiResponse {
   data: any[];
@@ -60,12 +62,22 @@ function App() {
     setUsingCachedData(false);
     
     try {
-      const { data: responseData, error: fnError } = await supabase.functions.invoke('equips-proxy', {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/equips-proxy`, {
         method: 'POST',
-        body: {},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({}),
       });
 
-      if (fnError) throw fnError;
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API returned ${response.status}: ${errorText}`);
+      }
+
+      const responseData = await response.json();
 
       if (responseData?.error) {
         throw new Error(responseData.error);

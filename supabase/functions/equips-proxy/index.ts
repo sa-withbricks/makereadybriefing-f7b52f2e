@@ -10,7 +10,7 @@ async function equipsFetch(path: string, apiKey: string, options?: RequestInit) 
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
+      'Authorization': `api-key ${apiKey}`,
       ...(options?.headers || {}),
     },
   });
@@ -45,16 +45,36 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch all data in parallel
-    const [serviceRequests, locations, statuses, workflows, workflowStatuses] = await Promise.all([
-      equipsFetch('/public/serviceRequest/search', apiKey, {
-        method: 'POST',
-        body: JSON.stringify(searchBody),
-      }),
-      equipsFetch('/public/location', apiKey),
-      equipsFetch('/public/serviceStatus', apiKey),
-      equipsFetch('/public/serviceWorkflow', apiKey),
-      equipsFetch('/public/serviceWorkflowToServiceStatus', apiKey),
+    // Fetch service requests (required)
+    const serviceRequests = await equipsFetch('/public/serviceRequest/search', apiKey, {
+      method: 'POST',
+      body: JSON.stringify(searchBody),
+    });
+
+    // Fetch lookup data (optional - don't fail if these endpoints aren't available)
+    const safeGet = async (path: string) => {
+      try {
+        return await equipsFetch(path, apiKey);
+      } catch (err) {
+        console.warn(`Optional endpoint ${path} failed:`, err.message);
+        // Try POST with search suffix
+        try {
+          return await equipsFetch(`${path}/search`, apiKey, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+        } catch (err2) {
+          console.warn(`Optional endpoint ${path}/search also failed:`, err2.message);
+          return [];
+        }
+      }
+    };
+
+    const [locations, statuses, workflows, workflowStatuses] = await Promise.all([
+      safeGet('/public/location'),
+      safeGet('/public/serviceStatus'),
+      safeGet('/public/serviceWorkflow'),
+      safeGet('/public/serviceWorkflowToServiceStatus'),
     ]);
 
     // Build lookup maps
