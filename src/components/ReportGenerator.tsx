@@ -71,6 +71,7 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
     
     return {
       ...entry,
+      workflowName: entry.workflowName || '',
       date: dueDate,
       time: '',
       status: entry.statusName || 'Unknown',
@@ -505,6 +506,9 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
                           >
                             {entry.status}
                           </Badge>
+                          {entry.workflowName && (
+                            <p className="text-xs text-muted-foreground mt-1 print:text-[10px] print:mt-0">{entry.workflowName}</p>
+                          )}
                         </div>
 
                         {/* Task title and description */}

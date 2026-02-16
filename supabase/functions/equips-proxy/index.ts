@@ -119,8 +119,9 @@ Deno.serve(async (req) => {
     const uniqueStatusIds = [...new Set(relevant.map(sr => sr.serviceWorkflowToServiceStatusId as string))];
     console.log(`Resolving ${uniqueStatusIds.length} unique serviceWorkflowToServiceStatus IDs`);
 
-    // Fetch each serviceWorkflowToServiceStatus to get the embedded serviceStatus.name
+    // Fetch each serviceWorkflowToServiceStatus to get the embedded serviceStatus.name and serviceWorkflow.name
     const statusNameMap: Record<string, string> = {};
+    const workflowNameMap: Record<string, string> = {};
 
     // Batch: fetch all SWTS in parallel (limited concurrency)
     const BATCH_SIZE = 10;
@@ -130,12 +131,14 @@ Deno.serve(async (req) => {
         batch.map(async (swtsId) => {
           const swts = await equipsFetch(`/public/serviceWorkflowToServiceStatus/${swtsId}`, apiKey);
           const name = swts?.serviceStatus?.name || swts?.name || '';
-          return { swtsId, name };
+          const workflowName = swts?.serviceWorkflow?.name || '';
+          return { swtsId, name, workflowName };
         })
       );
       for (const result of results) {
         if (result.status === 'fulfilled') {
           statusNameMap[result.value.swtsId] = result.value.name;
+          workflowNameMap[result.value.swtsId] = result.value.workflowName;
         }
       }
     }
@@ -146,6 +149,7 @@ Deno.serve(async (req) => {
       // Resolve status name from serviceStatus via serviceWorkflowToServiceStatusId
       const swtsId = sr.serviceWorkflowToServiceStatusId as string;
       const resolvedStatusName = statusNameMap[swtsId] || '';
+      const workflowName = workflowNameMap[swtsId] || '';
       // Fallback to formatted requestStatus if resolution failed
       const statusName = resolvedStatusName || (sr.requestStatus ? formatStatus(sr.requestStatus as string) : 'Unknown');
 
@@ -170,6 +174,7 @@ Deno.serve(async (req) => {
       return {
         ...sr,
         statusName,
+        workflowName,
         dueDateFormatted: dueDateStr,
         ...flatCustomFields,
       };
