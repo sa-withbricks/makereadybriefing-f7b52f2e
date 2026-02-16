@@ -65,18 +65,18 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
   
   // Transform and normalize the data
   const normalizeEntry = (entry: any): TaskEntry => {
-    // Try to map common field names to our expected format, prioritizing "Due Date: Day"
-    const dueDate = entry['Due Date: Day'] || entry.due_date || entry.dueDate || entry.Due_Date || entry.DueDate || 
+    // Use enriched fields from the edge function (dueDateFormatted, statusName, locationName)
+    const dueDate = entry.dueDateFormatted || entry['Due Date: Day'] || entry.due_date || entry.dueDate || entry.Due_Date || 
                    entry.date || entry.Date || entry.created_at || entry.createdAt || null;
     
     const time = entry.time || entry.Time || '';
     
     return {
       date: dueDate,
-      time: time === 'All Day' ? '' : time, // Remove "All Day" labels
-      status: entry['Status - StatusId → Name'] || entry.status || entry.Status || entry.state || entry.State || 'UNKNOWN',
+      time: time === 'All Day' ? '' : time,
+      status: entry.statusName || entry['Status - StatusId → Name'] || entry.requestStatus || entry.status || entry.Status || 'UNKNOWN',
       title: entry.title || entry.Title || entry.name || entry.Name || 'Untitled',
-      description: entry.descriptionText2 || entry.description || entry.Description || entry.desc || entry.Desc || '',
+      description: entry.locationName || entry.descriptionText2 || entry.description || entry.Description || '',
       details: entry.details || entry.Details || entry.notes || entry.Notes || '',
       cpWalkDate: entry['CP Walk Date'] || entry.cpWalkDate || entry.cp_walk_date || '',
       evs: entry.EVS || entry.evs || entry.EVS_Date || '',

@@ -1,1 +1,4 @@
 project_id = "crrksywyxdpylndkgrnp"
+
+[functions.equips-proxy]
+verify_jwt = false
