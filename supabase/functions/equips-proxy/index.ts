@@ -33,10 +33,14 @@ const STATUS_DISPLAY: Record<string, string> = {
   onHold: 'On Hold',
 };
 
-function formatEpoch(value: unknown): string {
+function formatEpoch(value: unknown, omitYear?: number): string {
   if (typeof value === 'number' && value > 1_000_000_000) {
     const d = new Date(value);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+    if (!omitYear || d.getFullYear() !== omitYear) {
+      opts.year = 'numeric';
+    }
+    return d.toLocaleDateString('en-US', opts);
   }
   if (typeof value === 'string' && value.trim()) return value;
   return '';
@@ -149,24 +153,48 @@ Deno.serve(async (req) => {
       // Resolve status name from serviceStatus via serviceWorkflowToServiceStatusId
       const swtsId = sr.serviceWorkflowToServiceStatusId as string;
       const resolvedStatusName = statusNameMap[swtsId] || '';
-      const workflowName = workflowNameMap[swtsId] || '';
+      let trimmedWorkflow = workflowNameMap[swtsId] || '';
+      if (trimmedWorkflow.startsWith('Capital Projects: ')) {
+        trimmedWorkflow = trimmedWorkflow.slice('Capital Projects: '.length);
+      }
       // Fallback to formatted requestStatus if resolution failed
       const statusName = resolvedStatusName || (sr.requestStatus ? formatStatus(sr.requestStatus as string) : 'Unknown');
 
       // Convert epoch dueDate to ISO date string (YYYY-MM-DD)
       let dueDateStr = '';
+      let dueDateYear: number | undefined;
       if (sr.dueDate && typeof sr.dueDate === 'number') {
         const d = new Date(sr.dueDate);
         dueDateStr = d.toISOString().split('T')[0];
+        dueDateYear = d.getFullYear();
       }
+
+      // Determine if we can omit year from CF dates (all same year as dueDate and current year)
+      const currentYear = new Date().getFullYear();
+      const omitYear = (dueDateYear === currentYear) ? currentYear : undefined;
 
       // Flatten customFields into top-level camelCase fields with formatted dates
       const flatCustomFields: Record<string, string> = {};
       const customFields = sr.customFields as Record<string, unknown> | undefined;
       if (customFields && typeof customFields === 'object') {
-        for (const [apiKey, reportKey] of Object.entries(CUSTOM_FIELD_MAP)) {
-          if (apiKey in customFields) {
-            flatCustomFields[reportKey] = formatEpoch(customFields[apiKey]);
+        // First check if all CF epoch values are in the same year
+        let allSameYear = omitYear !== undefined;
+        if (allSameYear) {
+          for (const [cfKey] of Object.entries(CUSTOM_FIELD_MAP)) {
+            const v = customFields[cfKey];
+            if (typeof v === 'number' && v > 1_000_000_000) {
+              if (new Date(v).getFullYear() !== omitYear) {
+                allSameYear = false;
+                break;
+              }
+            }
+          }
+        }
+        const yearToOmit = allSameYear ? omitYear : undefined;
+
+        for (const [cfKey, reportKey] of Object.entries(CUSTOM_FIELD_MAP)) {
+          if (cfKey in customFields) {
+            flatCustomFields[reportKey] = formatEpoch(customFields[cfKey], yearToOmit);
           }
         }
       }
@@ -174,7 +202,7 @@ Deno.serve(async (req) => {
       return {
         ...sr,
         statusName,
-        workflowName,
+        workflowName: trimmedWorkflow,
         dueDateFormatted: dueDateStr,
         ...flatCustomFields,
       };
