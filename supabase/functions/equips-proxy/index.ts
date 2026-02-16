@@ -17,6 +17,14 @@ const CUSTOM_FIELD_MAP: Record<string, string> = {
   kti: 'kti',
 };
 
+// Workflow name abbreviations for compact display
+const WORKFLOW_ABBREVIATIONS: Record<string, string> = {
+  'In House Move: CC': 'IHM:CC',
+  'Make Ready (Contractors)': 'MR-C',
+  'IH House Move: Make Ready (Contractor)': 'IHM:MR-C',
+  'Make Ready (Maintenance)': 'MR-M',
+};
+
 // requestStatus enum → human-readable display
 const STATUS_DISPLAY: Record<string, string> = {
   proposed: 'Proposed',
@@ -96,6 +104,7 @@ Deno.serve(async (req) => {
       ...searchBody,
       where: {
         serviceWorkflowToServiceStatusId: { not: null },
+        deactivatedAt: { equals: null },
       },
     };
 
@@ -165,6 +174,8 @@ Deno.serve(async (req) => {
       if (trimmedWorkflow.startsWith('Capital Projects: ')) {
         trimmedWorkflow = trimmedWorkflow.slice('Capital Projects: '.length);
       }
+      // Apply abbreviation if available
+      trimmedWorkflow = WORKFLOW_ABBREVIATIONS[trimmedWorkflow] || trimmedWorkflow;
       // Fallback to formatted requestStatus if resolution failed
       const statusName = resolvedStatusName || (sr.requestStatus ? formatStatus(sr.requestStatus as string) : 'Unknown');
 
