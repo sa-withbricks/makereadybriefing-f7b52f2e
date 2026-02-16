@@ -169,9 +169,9 @@ Deno.serve(async (req) => {
       // Resolve status name from serviceStatus via serviceWorkflowToServiceStatusId
       const swtsId = sr.serviceWorkflowToServiceStatusId as string;
       const resolvedStatusName = statusNameMap[swtsId] || '';
-      let trimmedWorkflow = workflowNameMap[swtsId] || '';
+      let trimmedWorkflow = (workflowNameMap[swtsId] || '').trim();
       if (trimmedWorkflow.startsWith('Capital Projects: ')) {
-        trimmedWorkflow = trimmedWorkflow.slice('Capital Projects: '.length);
+        trimmedWorkflow = trimmedWorkflow.slice('Capital Projects: '.length).trim();
       }
       // Apply abbreviation if available
       trimmedWorkflow = WORKFLOW_ABBREVIATIONS[trimmedWorkflow] || trimmedWorkflow;
