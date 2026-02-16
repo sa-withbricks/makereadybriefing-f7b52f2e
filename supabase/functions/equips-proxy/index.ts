@@ -114,9 +114,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Enrich service requests
+    // Enrich service requests — only include those with serviceWorkflowToServiceStatusId
     const srArr = Array.isArray(serviceRequests) ? serviceRequests : serviceRequests?.data || [];
-    const enriched = srArr.map((sr: Record<string, unknown>) => {
+    const relevant = srArr.filter((sr: Record<string, unknown>) => sr.serviceWorkflowToServiceStatusId);
+    const enriched = relevant.map((sr: Record<string, unknown>) => {
       const locationName = sr.locationId ? locationMap[sr.locationId as string] || '' : '';
       
       // Resolve status from workflowToServiceStatus mapping
