@@ -1,61 +1,51 @@
 
+# Merge Make Ready Briefing into Capital View
 
-## Read Custom Fields and Status from EQUIPS API
+## Overview
+Bring the Make Ready Briefing tool into the Capital View project as a new page/route, reusing Capital View's existing layout, authentication, and navigation.
 
-### What's Happening Now
-- The EQUIPS API returns `customFields` as a nested object on each service request (e.g., `{"cp_walk_date": 1740268800000, "evs": 1740614400000, "move_in": ...}`). These contain the make-ready milestone dates.
-- The report currently ignores this nested object because it looks for top-level keys like `cpWalkDate`, `evs`, etc.
-- The status lookup endpoints (`/public/serviceStatus`, `/public/serviceWorkflowToServiceStatus`, etc.) all return 404, so they're not available. However, each SR already has a `requestStatus` field with readable enum values like `internalDispatch`, `proposed`, `serviceComplete`, `closed`, etc.
+## What needs to move
 
-### What Changes
+### 1. Edge Function: `equips-proxy`
+- Copy `supabase/functions/equips-proxy/index.ts` into the Capital View project
+- Add the `[functions.equips-proxy]` config with `verify_jwt = false` to Capital View's `supabase/config.toml`
+- The `EQUIPS_API_KEY` secret will need to be configured in the Capital View project's backend as well
 
-**1. Edge Function (`supabase/functions/equips-proxy/index.ts`)**
-- Flatten `customFields` into the top level of each enriched SR, converting epoch timestamps to formatted date strings (e.g., `cp_walk_date: 1740268800000` becomes `cpWalkDate: "2025-02-23"`)
-- Use `requestStatus` directly for the status (formatted to human-readable: `internalDispatch` becomes `"Internal Dispatch"`)
-- Remove the 4 failing lookup endpoint calls (`/public/location`, `/public/serviceStatus`, `/public/serviceWorkflow`, `/public/serviceWorkflowToServiceStatus`) to speed up the response
+### 2. Components
+- Copy `src/components/ReportGenerator.tsx` into Capital View as `src/components/MakeReadyReport.tsx` (or keep the same name)
+- Copy `src/components/figma/ImageWithFallback.tsx` if used
 
-**2. Report Component (`src/components/ReportGenerator.tsx`)**
-- Update `normalizeEntry` to read custom field values from the flattened fields: `cpWalkDate`, `evs`, `keyRelease`, `hhg`, `moveIn`, `ntv`, `vacate`, `kti`
-- Use the human-readable `statusName` from the edge function instead of falling back through multiple field names
-- Remove legacy Metabase column mapping code that's no longer needed
+### 3. New Page
+- Create `src/pages/MakeReady.tsx` in Capital View containing the data-fetching logic currently in this project's `App.tsx` (the `fetchData` function, loading states, caching, error handling)
+- This page will use the existing `AppLayout` wrapper so it gets the same header/nav as the rest of Capital View
 
-### Technical Details
+### 4. Routing and Navigation
+- Add a `/make-ready` route in Capital View's `App.tsx` inside the protected routes
+- Add a "Make Ready" link to the `AppHeader` or navigation component
 
-Custom field key mapping (from API to report fields):
+## Technical details
 
-| API customFields key | Report field | Display label |
-|---|---|---|
-| `cp_walk_date` | `cpWalkDate` | CP Walk Date |
-| `evs` | `evs` | EVS |
-| `key_release` | `keyRelease` | Key Release |
-| `hhg` | `hhg` | HHG |
-| `move_in` | `moveIn` | Move In |
-| `ntv` | `ntv` | NTV |
-| `vacate` | `vacate` | Vacate |
-| `kti` | `kti` | KTI |
+### Files to create/edit in Capital View
 
-Status formatting (camelCase enum to readable):
+| Action | File | Description |
+|--------|------|-------------|
+| Create | `supabase/functions/equips-proxy/index.ts` | Full copy of the edge function |
+| Edit | `supabase/config.toml` | Add `[functions.equips-proxy]` section |
+| Create | `src/pages/MakeReady.tsx` | Page wrapper with fetch logic, loading, caching |
+| Create | `src/components/MakeReadyReport.tsx` | Copy of `ReportGenerator.tsx` |
+| Edit | `src/App.tsx` | Add `/make-ready` route |
+| Edit | `src/components/AppHeader.tsx` (or nav) | Add navigation link |
 
-| API `requestStatus` | Display |
-|---|---|
-| `proposed` | Proposed |
-| `internalDispatch` | Internal Dispatch |
-| `equipsDispatch` | Equips Dispatch |
-| `providerDispatch` | Provider Dispatch |
-| `serviceComplete` | Service Complete |
-| `closed` | Closed |
-| `canceled` | Canceled |
-| `invoiced` | Invoiced |
-| `followUp` | Follow Up |
-| `awaitingPayment` | Awaiting Payment |
-| `inProgress` | In Progress |
-| `onHold` | On Hold |
+### Secret configuration
+The `EQUIPS_API_KEY` secret is already set in this project's backend. It will need to be added to Capital View's backend separately since secrets don't transfer between projects.
 
-All custom field epoch values will be converted to formatted dates (e.g., "Feb 23, 2025") in the edge function so the frontend just displays them directly.
+### No database changes needed
+This tool doesn't use any database tables -- it's purely an edge function proxy to the EQUIPS API with a React frontend.
 
-### What Stays the Same
-- Timeline slicer, print functionality, date grouping
-- Card layout and visual design
-- Caching fallback in App.tsx
-- Pagination logic for fetching all SRs
+## Implementation approach
+Since this work needs to happen in the **Capital View** project (not this one), you have two options:
 
+1. **Switch to Capital View** and ask me to implement it there -- I can read the files from this project using cross-project tools and build everything directly
+2. **Remix this project** and manually merge -- more manual effort
+
+I recommend option 1: open Capital View and ask me to "bring in the Make Ready Briefing from the makereadybriefing project."
