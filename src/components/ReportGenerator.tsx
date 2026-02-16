@@ -44,24 +44,7 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
   // State for date range slider
   const [dateRange, setDateRange] = useState<[number, number]>([0, 100]);
   
-  // Handle Metabase format if columns are provided
-  let processedData = data.data;
-  
-  if (data.columns && Array.isArray(data.columns) && Array.isArray(data.data)) {
-    console.log('Metabase format detected, columns:', data.columns);
-    
-    // Convert Metabase rows format to objects
-    processedData = data.data.map(row => {
-      const obj: any = {};
-      data.columns!.forEach((col, index) => {
-        const columnName = col.display_name || col.name || `column_${index}`;
-        obj[columnName] = row[index];
-      });
-      return obj;
-    });
-    
-    console.log('Converted Metabase data:', processedData);
-  }
+  const processedData = data.data;
   
   // Strip HTML tags from a string
   const stripHtml = (html: string): string => {
@@ -71,43 +54,39 @@ export function ReportGenerator({ data }: ReportGeneratorProps) {
 
   // Transform and normalize the data
   const normalizeEntry = (entry: any): TaskEntry => {
-    // Use enriched fields from the edge function (dueDateFormatted, statusName, locationName)
-    let dueDate = entry.dueDateFormatted || entry['Due Date: Day'] || entry.due_date || entry.Due_Date || 
-                   entry.date || entry.Date || null;
+    // Due date: prefer the pre-formatted field from edge function
+    let dueDate = entry.dueDateFormatted || null;
     
-    // Handle epoch timestamps (dueDate from EQUIPS is in ms)
+    // Fallback: epoch dueDate
     if (!dueDate && entry.dueDate && typeof entry.dueDate === 'number') {
-      const d = new Date(entry.dueDate);
-      dueDate = d.toISOString().split('T')[0];
+      dueDate = new Date(entry.dueDate).toISOString().split('T')[0];
     }
 
-    // Handle createdAt as fallback (also epoch)
+    // Fallback: epoch createdAt
     if (!dueDate && entry.createdAt && typeof entry.createdAt === 'number') {
-      const d = new Date(entry.createdAt);
-      dueDate = d.toISOString().split('T')[0];
+      dueDate = new Date(entry.createdAt).toISOString().split('T')[0];
     }
     
-    const time = entry.time || entry.Time || '';
-    const rawDesc = entry.description || entry.Description || '';
+    const rawDesc = entry.description || '';
     
     return {
-      ...entry, // Spread first so explicit fields override
+      ...entry,
       date: dueDate,
-      time: time === 'All Day' ? '' : time,
-      status: entry.statusName || entry['Status - StatusId → Name'] || entry.requestStatus || entry.status || entry.Status || 'UNKNOWN',
-      title: entry.title || entry.Title || entry.name || entry.Name || 'Untitled',
-      description: entry.locationName || stripHtml(entry.descriptionText2 || rawDesc),
-      details: stripHtml(entry.details || entry.Details || entry.notes || entry.Notes || ''),
-      cpWalkDate: entry['CP Walk Date'] || entry.cpWalkDate || entry.cp_walk_date || '',
-      evs: entry.EVS || entry.evs || entry.EVS_Date || '',
-      keyRelease: entry['Key Release'] || entry.keyRelease || entry.key_release || '',
-      hhg: entry.HHG || entry.hhg || entry.HHG_Date || '',
-      moveIn: entry['Move In'] || entry.moveIn || entry.move_in || '',
-      ntv: entry.NTV || entry.ntv || entry.NTV_Date || '',
-      vacate: entry.Vacate || entry.vacate || entry.Vacate_Date || '',
-      openWOs: entry['Make Readys - Location → Count Open'] || entry.openWOs || entry.open_wos || '',
-      kti: entry.KTI || entry.kti || entry.KTI_Date || '',
-      serviceRequestId: entry['Service Request Id'] || entry.serviceRequestId || entry.service_request_id || '',
+      time: '',
+      status: entry.statusName || 'Unknown',
+      title: entry.title || entry.name || 'Untitled',
+      description: stripHtml(entry.descriptionText2 || rawDesc),
+      details: stripHtml(entry.details || entry.notes || ''),
+      cpWalkDate: entry.cpWalkDate || '',
+      evs: entry.evs || '',
+      keyRelease: entry.keyRelease || '',
+      hhg: entry.hhg || '',
+      moveIn: entry.moveIn || '',
+      ntv: entry.ntv || '',
+      vacate: entry.vacate || '',
+      openWOs: entry.openWOs || '',
+      kti: entry.kti || '',
+      serviceRequestId: entry.serviceRequestId || '',
     };
   };
 
