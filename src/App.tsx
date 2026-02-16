@@ -4,56 +4,12 @@ import { Button } from './components/ui/button';
 import { Card } from './components/ui/card';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from './components/ui/alert';
+import { supabase } from './integrations/supabase/client';
 
 interface ApiResponse {
   data: any[];
   [key: string]: any;
 }
-
-// Fetch with timeout support
-const fetchWithTimeout = async (url: string, timeoutMs: number = 15000): Promise<Response> => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timed out');
-    }
-    throw error;
-  }
-};
-
-// Retry logic with exponential backoff
-const fetchWithRetry = async (
-  fetchFn: () => Promise<any>,
-  maxRetries: number = 3,
-  initialDelayMs: number = 1000
-): Promise<any> => {
-  let lastError: Error | null = null;
-  
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fetchFn();
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error('Unknown error');
-      console.log(`Attempt ${attempt + 1} failed:`, lastError.message);
-      
-      // Don't retry on the last attempt
-      if (attempt < maxRetries - 1) {
-        const delay = initialDelayMs * Math.pow(2, attempt);
-        console.log(`Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-  
-  throw lastError;
-};
 
 function App() {
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -92,7 +48,7 @@ function App() {
     
     const interval = setInterval(() => {
       setLoadingMessageIndex((prev) => (prev + 1) % loadingMessages.length);
-    }, 3000); // Change message every 3 seconds
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [loading, loadingMessages.length]);
@@ -100,164 +56,61 @@ function App() {
   const fetchData = async () => {
     setLoading(true);
     setError(null);
-    setLoadingMessageIndex(0); // Reset to first message
+    setLoadingMessageIndex(0);
     setUsingCachedData(false);
     
     try {
-      const targetUrl = 'http://metabase.app.equips.com/public/question/70a65d26-283f-44db-96b3-e1d1b657401b.json';
-      
-      let proxyData = null;
-      let lastError: Error | null = null;
-      let successfulProxy = '';
-      
-      // Define proxy strategies - ordered by reliability
-      const proxyStrategies = [
-        {
-          name: 'allorigins (raw mode)',
-          fetch: async () => {
-            const response = await fetchWithTimeout(
-              `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-              20000
-            );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
-          }
-        },
-        {
-          name: 'allorigins (json mode)',
-          fetch: async () => {
-            const response = await fetchWithTimeout(
-              `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
-              20000
-            );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            return JSON.parse(data.contents);
-          }
-        },
-        {
-          name: 'corsproxy.io',
-          fetch: async () => {
-            const response = await fetchWithTimeout(
-              `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-              20000
-            );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
-          }
-        },
-        {
-          name: 'cors.eu.org',
-          fetch: async () => {
-            const response = await fetchWithTimeout(
-              `https://cors.eu.org/?${encodeURIComponent(targetUrl)}`,
-              20000
-            );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
-          }
-        },
-        {
-          name: 'thingproxy',
-          fetch: async () => {
-            const response = await fetchWithTimeout(
-              `https://thingproxy.freeboard.io/fetch/${targetUrl}`,
-              20000
-            );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
-          }
-        }
-      ];
-      
-      // Try each proxy strategy
-      for (const strategy of proxyStrategies) {
-        try {
-          console.log(`Trying ${strategy.name}...`);
-          proxyData = await strategy.fetch();
-          successfulProxy = strategy.name;
-          console.log(`✓ ${strategy.name} succeeded!`);
-          break;
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error('Unknown error');
-          console.log(`✗ ${strategy.name} failed:`, lastError.message);
-        }
+      const { data: responseData, error: fnError } = await supabase.functions.invoke('equips-proxy', {
+        method: 'POST',
+        body: {},
+      });
+
+      if (fnError) throw fnError;
+
+      if (responseData?.error) {
+        throw new Error(responseData.error);
       }
-      
-      if (!proxyData) {
-        // All proxies failed - try to load from cache
-        console.log('All proxies failed, checking cache...');
-        const cachedData = localStorage.getItem('makeready_data_cache');
-        const cachedTime = localStorage.getItem('makeready_data_cache_time');
-        
-        if (cachedData && cachedTime) {
-          console.log('Loading from cache');
-          const parsedData = JSON.parse(cachedData);
-          setData(parsedData);
-          setUsingCachedData(true);
-          setCacheTimestamp(cachedTime);
-          setError(
-            `Unable to reach the API - showing cached data from ${new Date(cachedTime).toLocaleString()}.\n\n` +
-            `Network issue: ${lastError?.message || 'All proxy services failed'}\n\n` +
-            `The cached data may be outdated. Click "Try Again" to retry loading fresh data.`
-          );
-          setLoading(false);
-          return;
-        }
-        
-        throw new Error(
-          `Unable to load data from the API.\\n\\n` +
-          `All proxy services failed. Last error: ${lastError?.message || 'Unknown error'}\\n\\n` +
-          `This could mean:\\n` +
-          `• The API server is temporarily down\\n` +
-          `• Proxy services are experiencing issues\\n` +
-          `• Network connectivity problems\\n\\n` +
-          `No cached data is available. Please try again in a moment.`
-        );
-      }
-      
-      console.log(`Successfully loaded data via ${successfulProxy}`);
-      console.log('Raw fetched data:', proxyData);
-      
-      // Transform the data to match our expected format
-      let transformedData;
-      if (Array.isArray(proxyData)) {
-        // If it's an array, assume it's the data array
-        transformedData = { data: proxyData };
-      } else if (proxyData.data && Array.isArray(proxyData.data)) {
-        // If it has a data property that's an array, use it
-        transformedData = proxyData;
-      } else if (proxyData.rows && Array.isArray(proxyData.rows)) {
-        // Metabase often returns data in a "rows" array
-        transformedData = { data: proxyData.rows, columns: proxyData.cols };
-      } else {
-        // Otherwise, wrap it in our expected format
-        transformedData = { data: [proxyData] };
-      }
-      
-      console.log('Transformed data:', transformedData);
-      
-      // Cache the successful data
+
+      const transformedData: ApiResponse = {
+        data: Array.isArray(responseData?.data) ? responseData.data : [],
+      };
+
+      console.log('Fetched data:', transformedData);
+
+      // Cache successful data
       try {
         const now = new Date().toISOString();
         localStorage.setItem('makeready_data_cache', JSON.stringify(transformedData));
         localStorage.setItem('makeready_data_cache_time', now);
-        console.log('Data cached successfully');
       } catch (cacheErr) {
         console.warn('Failed to cache data:', cacheErr);
-        // Non-critical error, continue
       }
-      
+
       setData(transformedData);
       setUsingCachedData(false);
       setCacheTimestamp(null);
       
     } catch (err) {
       console.error('Fetch error:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
-      setError(errorMessage);
-      setData(null);
       
+      // Try cache fallback
+      const cachedData = localStorage.getItem('makeready_data_cache');
+      const cachedTime = localStorage.getItem('makeready_data_cache_time');
+      
+      if (cachedData && cachedTime) {
+        const parsedData = JSON.parse(cachedData);
+        setData(parsedData);
+        setUsingCachedData(true);
+        setCacheTimestamp(cachedTime);
+        setError(
+          `Unable to reach the API — showing cached data from ${new Date(cachedTime).toLocaleString()}.\n\n` +
+          `Error: ${err instanceof Error ? err.message : 'Unknown error'}\n\n` +
+          `The cached data may be outdated. Click "Try Again" to retry.`
+        );
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to fetch data');
+        setData(null);
+      }
     } finally {
       setLoading(false);
       setLoadingMessageIndex(0);
