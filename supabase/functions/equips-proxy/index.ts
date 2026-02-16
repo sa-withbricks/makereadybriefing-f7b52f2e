@@ -90,29 +90,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch all service requests with pagination
-    let allServiceRequests: Record<string, unknown>[] = [];
-    let page = 0;
+    // Fetch all service requests — use parallel page fetching for speed
     const pageSize = 500;
-    let hasMore = true;
+    const maxRecords = 10000;
+    const totalPages = maxRecords / pageSize; // 20 pages
 
-    while (hasMore) {
-      const result = await equipsFetch('/public/serviceRequest/search', apiKey, {
+    // Fire all page requests in parallel
+    const pagePromises = Array.from({ length: totalPages }, (_, page) =>
+      equipsFetch('/public/serviceRequest/search', apiKey, {
         method: 'POST',
         body: JSON.stringify({ ...searchBody, take: pageSize, skip: page * pageSize }),
-      });
+      }).then(result => {
+        const items = Array.isArray(result) ? result : result?.data || [];
+        console.log(`Page ${page}: fetched ${items.length} records`);
+        return items as Record<string, unknown>[];
+      })
+    );
 
-      const items = Array.isArray(result) ? result : result?.data || [];
-      allServiceRequests = allServiceRequests.concat(items);
-      
-      console.log(`Page ${page}: fetched ${items.length} records (total so far: ${allServiceRequests.length})`);
-      
-      if (items.length < pageSize || allServiceRequests.length >= 10000) {
-        hasMore = false;
-      }
-      page++;
-    }
-
+    const pageResults = await Promise.all(pagePromises);
+    const allServiceRequests = pageResults.flat();
     console.log(`Total service requests fetched: ${allServiceRequests.length}`);
 
     // Filter to only SRs with serviceWorkflowToServiceStatusId
