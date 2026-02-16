@@ -45,11 +45,30 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch service requests (required)
-    const serviceRequests = await equipsFetch('/public/serviceRequest/search', apiKey, {
-      method: 'POST',
-      body: JSON.stringify(searchBody),
-    });
+    // Fetch all service requests with pagination (EQUIPS uses `take`/`skip`)
+    let allServiceRequests: Record<string, unknown>[] = [];
+    let page = 0;
+    const pageSize = 500;
+    let hasMore = true;
+
+    while (hasMore) {
+      const result = await equipsFetch('/public/serviceRequest/search', apiKey, {
+        method: 'POST',
+        body: JSON.stringify({ ...searchBody, take: pageSize, skip: page * pageSize }),
+      });
+
+      const items = Array.isArray(result) ? result : result?.data || [];
+      allServiceRequests = allServiceRequests.concat(items);
+      
+      console.log(`Page ${page}: fetched ${items.length} records (total so far: ${allServiceRequests.length})`);
+      
+      if (items.length < pageSize || allServiceRequests.length >= 10000) {
+        hasMore = false;
+      }
+      page++;
+    }
+
+    console.log(`Total service requests fetched: ${allServiceRequests.length}`);
 
     // Fetch lookup data (optional - don't fail if these endpoints aren't available)
     const safeGet = async (path: string) => {
@@ -115,8 +134,8 @@ Deno.serve(async (req) => {
     }
 
     // Enrich service requests — only include those with serviceWorkflowToServiceStatusId
-    const srArr = Array.isArray(serviceRequests) ? serviceRequests : serviceRequests?.data || [];
-    const relevant = srArr.filter((sr: Record<string, unknown>) => sr.serviceWorkflowToServiceStatusId);
+    const relevant = allServiceRequests.filter((sr) => sr.serviceWorkflowToServiceStatusId);
+    console.log(`Filtered to ${relevant.length} records with serviceWorkflowToServiceStatusId`);
     const enriched = relevant.map((sr: Record<string, unknown>) => {
       const locationName = sr.locationId ? locationMap[sr.locationId as string] || '' : '';
       
